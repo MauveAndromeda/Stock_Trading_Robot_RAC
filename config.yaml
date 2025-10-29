@@ -1,0 +1,231 @@
+# AI股票多Agent自动交易系统配置文件
+
+# LLM配置
+llm:
+  provider: "openai"  # openai, anthropic, 或 azure
+  api_key: "${OPENAI_API_KEY}"  # 从环境变量读取
+  model: "gpt-4-turbo-preview"
+  temperature: 0.7
+  max_tokens: 2000
+
+  # 备用配置（可选）
+  backup:
+    provider: "anthropic"
+    api_key: "${ANTHROPIC_API_KEY}"
+    model: "claude-3-opus-20240229"
+
+# Agent配置
+agents:
+  retail:
+    total_count: 200
+    types:
+      momentum_chaser: 50      # 追涨杀跌型
+      panic_seller: 40          # 恐慌型
+      herd_follower: 40         # 跟风型
+      value_seeker: 40          # 价值型散户
+      technical_trader: 30      # 技术型散户
+
+  institutional:
+    total_count: 50
+    types:
+      quantitative: 15          # 量化对冲基金
+      value_investor: 10        # 价值投资机构
+      trend_follower: 10        # 趋势跟踪
+      high_frequency: 10        # 高频交易
+      index_fund: 5             # 指数基金
+
+  expert_panel:
+    enabled: true
+    experts:
+      - sentiment_analyst      # 情绪分析专家
+      - institutional_flow     # 机构行为专家
+      - risk_controller        # 风险控制专家
+      - timing_expert          # 市场时机专家
+    discussion_rounds: 3       # 讨论轮次
+
+# 市场数据配置
+market_data:
+  source: "akshare"  # akshare, yfinance, tushare
+  stock_universe:
+    market: ["沪深A股"]       # 市场范围
+    min_market_cap: 10        # 最小市值（亿元）
+    min_liquidity: 5000000    # 最小日成交量
+    max_stocks: 500           # 监控股票数量上限
+
+  update_frequency:
+    realtime: 60              # 实时数据更新间隔（秒）
+    daily: "09:30"            # 日线数据更新时间
+
+  indicators:                 # 需要计算的技术指标
+    - MA5
+    - MA10
+    - MA20
+    - MA60
+    - MACD
+    - RSI
+    - BOLL
+    - volume_ratio
+    - turnover_rate
+
+# 交易配置
+trading:
+  mode: "simulation"          # simulation（模拟）, live（实盘）
+
+  # 实盘交易配置（仅mode=live时生效）
+  broker:
+    name: "your_broker"
+    account_id: "${BROKER_ACCOUNT}"
+    api_key: "${BROKER_API_KEY}"
+    api_secret: "${BROKER_API_SECRET}"
+
+  # 交易时间
+  trading_hours:
+    start: "09:30"
+    end: "14:55"              # 提前5分钟停止交易
+    lunch_break:
+      start: "11:30"
+      end: "13:00"
+
+  # 仓位管理
+  position:
+    max_total_position: 0.8   # 最大总仓位（80%）
+    max_single_position: 0.1  # 单只股票最大仓位（10%）
+    min_cash_reserve: 0.2     # 最小现金储备（20%）
+
+  # 订单执行
+  order:
+    type: "limit"             # limit（限价）, market（市价）
+    price_offset: 0.001       # 价格偏移（买入加，卖出减）
+    max_slippage: 0.02        # 最大滑点容忍度（2%）
+    split_large_orders: true  # 是否拆分大单
+    split_threshold: 50000    # 拆单阈值（股）
+
+# 风险管理
+risk_management:
+  enabled: true
+
+  # 止损止盈
+  stop_loss:
+    enabled: true
+    percentage: 0.05          # 止损比例（5%）
+    trailing: true            # 是否使用跟踪止损
+
+  stop_profit:
+    enabled: true
+    percentage: 0.15          # 止盈比例（15%）
+    partial_exit: true        # 是否部分止盈
+    partial_ratio: 0.5        # 部分止盈比例
+
+  # 交易限制
+  limits:
+    max_daily_trades: 20      # 单日最大交易次数
+    max_daily_loss: 0.03      # 单日最大亏损比例（3%）
+    max_drawdown: 0.10        # 最大回撤限制（10%）
+    cooldown_period: 300      # 同一股票交易冷却期（秒）
+
+  # 异常处理
+  emergency:
+    auto_stop_on_error: true  # 错误时自动停止
+    notify_on_large_loss: true # 大额亏损通知
+    large_loss_threshold: 0.02 # 大额亏损阈值（2%）
+
+# 策略配置
+strategy:
+  name: "contra_institutional"  # 顺机构反散户策略
+
+  # 信号权重
+  signal_weights:
+    retail_sentiment: 0.3     # 散户情绪权重
+    institutional_flow: 0.4   # 机构资金流向权重
+    technical: 0.2            # 技术指标权重
+    fundamental: 0.1          # 基本面权重
+
+  # 触发条件
+  entry_conditions:
+    min_confidence: 0.75      # 最小置信度
+    sentiment_divergence: 0.6 # 情绪分歧度阈值
+    institutional_agreement: 0.7 # 机构一致度阈值
+
+  # 机会筛选
+  opportunity_filter:
+    min_score: 70             # 最小评分
+    max_opportunities: 10     # 同时持有机会数上限
+    diversification: true     # 行业分散化
+
+# 数据缓存
+cache:
+  enabled: true
+  type: "redis"               # redis, memory, file
+  redis:
+    host: "localhost"
+    port: 6379
+    db: 0
+    password: "${REDIS_PASSWORD}"
+  ttl:
+    realtime_data: 60         # 实时数据缓存时间（秒）
+    daily_data: 86400         # 日线数据缓存时间（秒）
+    analysis_result: 3600     # 分析结果缓存时间（秒）
+
+# 日志配置
+logging:
+  level: "INFO"               # DEBUG, INFO, WARNING, ERROR
+  format: "json"              # text, json
+  output:
+    console: true
+    file: true
+    file_path: "logs/trading_system.log"
+  rotation: "1 day"           # 日志轮转
+  retention: "30 days"        # 日志保留时间
+
+# 调度配置
+scheduler:
+  enabled: true
+  jobs:
+    - name: "market_scan"
+      cron: "*/5 9-15 * * 1-5"  # 交易日每5分钟扫描
+      function: "scan_market_opportunities"
+
+    - name: "daily_analysis"
+      cron: "0 8 * * 1-5"       # 每个交易日8点
+      function: "daily_market_analysis"
+
+    - name: "position_check"
+      cron: "*/30 9-15 * * 1-5" # 交易时段每30分钟检查持仓
+      function: "check_positions"
+
+    - name: "daily_report"
+      cron: "0 16 * * 1-5"      # 收盘后生成报告
+      function: "generate_daily_report"
+
+# 通知配置
+notification:
+  enabled: true
+  channels:
+    - email
+    - webhook
+
+  email:
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    username: "${EMAIL_USERNAME}"
+    password: "${EMAIL_PASSWORD}"
+    recipients:
+      - "your-email@example.com"
+
+  webhook:
+    url: "${WEBHOOK_URL}"
+
+  events:
+    - trade_executed        # 交易执行
+    - large_loss           # 大额亏损
+    - stop_loss_triggered  # 止损触发
+    - system_error         # 系统错误
+    - daily_report         # 日报
+
+# 系统配置
+system:
+  timezone: "Asia/Shanghai"
+  max_workers: 10             # 最大并发工作线程
+  request_timeout: 30         # 请求超时时间（秒）
+  retry_attempts: 3           # 失败重试次数
+  debug_mode: false           # 调试模式
