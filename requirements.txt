@@ -27,6 +27,10 @@ pandas==2.2.0
 numpy==1.26.3
 ta-lib==0.4.28
 
+# MT5外汇交易
+MetaTrader5==5.0.45  # MT5 Python集成
+pytz==2024.1  # 时区处理
+
 # 数据存储
 redis==5.0.1
 sqlalchemy==2.0.25

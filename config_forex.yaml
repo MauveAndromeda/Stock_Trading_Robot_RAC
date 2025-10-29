@@ -1,0 +1,271 @@
+# AI外汇多Agent自动交易系统配置 - Forex.com MT5
+# 50倍杠杆，$1000初始资金
+
+# MT5连接配置
+mt5:
+  # 留空则使用当前MT5终端的登录账号
+  login: null  # 你的MT5账号（可选）
+  password: null  # "${MT5_PASSWORD}" 从环境变量读取（可选）
+  server: "Forex.com-Demo"  # 或 "Forex.com-Live"
+  path: null  # MT5安装路径（可选，Windows通常自动检测）
+
+# LLM配置
+llm:
+  provider: "anthropic"  # openai, anthropic
+  api_key: "${ANTHROPIC_API_KEY}"
+  model: "claude-3-5-sonnet-20241022"
+  temperature: 0.7
+  max_tokens: 2000
+
+# Agent配置（适配外汇交易）
+agents:
+  retail:
+    total_count: 100  # 外汇市场快，减少Agent数量
+    types:
+      momentum_chaser: 25
+      panic_seller: 20
+      herd_follower: 20
+      value_seeker: 20
+      technical_trader: 15
+
+  institutional:
+    total_count: 30
+    types:
+      quantitative: 10
+      trend_follower: 10
+      high_frequency: 10
+
+  expert_panel:
+    enabled: true
+    experts:
+      - sentiment_analyst
+      - institutional_flow
+      - risk_controller
+      - timing_expert
+    discussion_rounds: 2  # 外汇市场快，减少讨论轮次
+
+# 外汇交易配置
+forex_trading:
+  mode: "simulation"  # simulation（模拟账户）, live（真实账户）
+
+  # 交易品种
+  symbols:
+    major_pairs:  # 主要货币对
+      - "EURUSD"
+      - "GBPUSD"
+      - "USDJPY"
+      - "USDCHF"
+    minor_pairs:  # 次要货币对
+      - "EURGBP"
+      - "EURJPY"
+      - "GBPJPY"
+    focus_pairs:  # 重点交易对（Agent优先分析）
+      - "EURUSD"
+      - "GBPUSD"
+
+  # 时间框架
+  timeframes:
+    analysis: "H1"  # 主要分析时间框架（1小时）
+    entry: "M15"    # 入场确认时间框架（15分钟）
+    trailing: "M5"  # 跟踪止损时间框架（5分钟）
+
+  # 交易时段（UTC时间）
+  trading_sessions:
+    enabled: true
+    sessions:
+      london: { start: "08:00", end: "17:00" }    # 伦敦时段
+      newyork: { start: "13:00", end: "22:00" }   # 纽约时段
+      overlap: { start: "13:00", end: "17:00" }   # 重叠时段（流动性最好）
+
+# 杠杆和资金管理
+leverage_risk:
+  leverage: 50  # 50倍杠杆
+
+  # 初始资金
+  initial_capital: 1000  # $1000美元
+
+  # 仓位管理（外汇特别重要！）
+  position:
+    max_total_position: 0.3  # 最大总仓位30%（杠杆下要保守）
+    max_single_position: 0.1  # 单一货币对最大10%
+    min_cash_reserve: 0.7     # 最小现金储备70%
+
+  # 每笔交易风险
+  risk_per_trade:
+    percentage: 0.02  # 每笔交易风险2%（$1000的2% = $20）
+    max_amount: 50    # 单笔最大风险$50
+
+  # 杠杆控制
+  effective_leverage:
+    target: 5   # 目标有效杠杆5倍（保守）
+    max: 10     # 最大有效杠杆10倍
+
+# 止损止盈（外汇用pips）
+stop_loss_take_profit:
+  # 固定止损止盈
+  fixed:
+    stop_loss_pips: 20    # 止损20点
+    take_profit_pips: 40  # 止盈40点（1:2风险回报比）
+
+  # 动态止损止盈（基于ATR）
+  dynamic:
+    enabled: true
+    atr_multiplier_sl: 1.5  # 止损 = 1.5倍ATR
+    atr_multiplier_tp: 3.0  # 止盈 = 3倍ATR
+
+  # 跟踪止损
+  trailing_stop:
+    enabled: true
+    activation_pips: 15  # 盈利15点后启动
+    trailing_pips: 10    # 跟踪距离10点
+
+# 风险管理（外汇重要！）
+risk_management:
+  enabled: true
+
+  # 每日限制
+  daily_limits:
+    max_trades: 10        # 每日最多10笔交易
+    max_loss_usd: 100     # 每日最大亏损$100（10%）
+    max_loss_pct: 0.10    # 每日最大亏损10%
+
+  # 整体限制
+  overall_limits:
+    max_drawdown_pct: 0.20  # 最大回撤20%
+    max_margin_usage: 0.50  # 最大保证金使用50%
+
+  # 新闻避险
+  news_filter:
+    enabled: true
+    avoid_before_minutes: 30  # 重要新闻前30分钟避免交易
+    avoid_after_minutes: 15   # 重要新闻后15分钟避免交易
+
+  # 周末持仓
+  weekend:
+    close_all_before_weekend: true  # 周五收盘前平仓
+    hours_before_close: 2           # 收盘前2小时
+
+# 策略配置
+strategy:
+  name: "forex_contra_institutional"
+
+  # 信号权重
+  signal_weights:
+    retail_sentiment: 0.25
+    institutional_flow: 0.35
+    technical: 0.30
+    fundamental: 0.10
+
+  # 入场条件
+  entry_conditions:
+    min_confidence: 0.70
+    sentiment_divergence: 0.5  # 外汇波动快，降低阈值
+    trend_confirmation: true    # 需要趋势确认
+    min_atr_pips: 10           # 最小ATR 10点（避免无波动）
+
+  # 出场条件
+  exit_conditions:
+    partial_profit_enabled: true
+    partial_profit_pct: 0.5      # 50%仓位
+    partial_profit_trigger: 0.6  # 达到60%目标时
+
+# 技术指标配置
+indicators:
+  moving_averages:
+    periods: [5, 10, 20, 50, 100, 200]
+    type: "EMA"  # SMA or EMA
+
+  momentum:
+    rsi_period: 14
+    rsi_overbought: 70
+    rsi_oversold: 30
+
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+
+  volatility:
+    atr_period: 14
+    bollinger_period: 20
+    bollinger_std: 2
+
+# 数据和缓存
+data:
+  historical_bars: 500  # 获取500根K线
+  update_interval: 60   # 每60秒更新一次
+
+  cache:
+    enabled: true
+    ttl: 60  # 缓存60秒
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "json"
+  output:
+    console: true
+    file: true
+    file_path: "logs/forex_trading.log"
+  rotation: "1 day"
+  retention: "30 days"
+
+# 调度配置（外汇24小时）
+scheduler:
+  enabled: true
+  jobs:
+    - name: "market_scan"
+      cron: "*/10 * * * *"  # 每10分钟扫描（外汇24小时交易）
+      function: "scan_forex_opportunities"
+
+    - name: "position_check"
+      cron: "*/5 * * * *"   # 每5分钟检查持仓
+      function: "check_positions"
+
+    - name: "risk_check"
+      cron: "*/15 * * * *"  # 每15分钟风险检查
+      function: "risk_monitoring"
+
+    - name: "daily_report"
+      cron: "0 0 * * *"     # 每日报告
+      function: "generate_daily_report"
+
+# 通知配置
+notification:
+  enabled: true
+  channels:
+    - email
+    - webhook
+
+  email:
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+    username: "${EMAIL_USERNAME}"
+    password: "${EMAIL_PASSWORD}"
+    recipients:
+      - "your-email@example.com"
+
+  webhook:
+    url: "${WEBHOOK_URL}"
+
+  events:
+    - trade_executed
+    - stop_loss_triggered
+    - daily_limit_reached
+    - margin_call_warning
+    - system_error
+
+# 回测配置
+backtest:
+  enabled: false
+  start_date: "2024-01-01"
+  end_date: "2024-12-31"
+  initial_balance: 1000
+  symbols: ["EURUSD", "GBPUSD"]
+
+# 系统配置
+system:
+  timezone: "UTC"
+  max_workers: 5
+  request_timeout: 30
+  retry_attempts: 3
+  debug_mode: false
