@@ -2,12 +2,23 @@
 python-dotenv==1.0.0
 pyyaml==6.0.1
 
-# AI和LLM
-openai==1.12.0
-anthropic==0.18.1
-langchain==0.1.9
-langchain-openai==0.0.6
-langchain-anthropic==0.1.4
+# AI和LLM (2025最新版本)
+openai==1.54.0  # 2024最新
+anthropic==0.39.0  # 2024最新，支持Claude 3.5 Sonnet
+langchain==0.3.7
+langchain-openai==0.2.8
+langchain-anthropic==0.3.3
+
+# 强化学习
+stable-baselines3==2.3.2  # RL算法库
+gymnasium==0.29.1  # OpenAI Gym替代品
+torch==2.4.0  # PyTorch
+tensorboard==2.18.0  # 训练监控
+
+# 深度学习
+transformers==4.46.0  # Hugging Face Transformers
+datasets==3.0.0  # 数据集管理
+accelerate==0.34.0  # 模型加速
 
 # 股票数据和分析
 akshare==1.13.30
