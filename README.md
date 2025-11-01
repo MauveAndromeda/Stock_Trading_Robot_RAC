@@ -1,158 +1,323 @@
-# AI股票多Agent自动交易系统
+# 🤖 AI Multi-Agent Stock Trading System | AI多Agent股票自动交易系统
 
-## 系统概述
+[English](#english) | [中文](#chinese)
 
-这是一个基于多Agent协作的智能股票交易系统，通过模拟数百个散户和机构投资者的决策行为，结合专家会议讨论机制，在全市场范围内自动发现交易机会并执行交易。
+---
 
-## 核心特性
+<a name="english"></a>
+## 🇬🇧 English Version
 
-### 1. 多Agent架构
-- **散户Agent群（200+）**：模拟不同类型的散户投资者
-  - 追涨杀跌型：情绪化交易，追逐热点
-  - 恐慌型：容易受市场波动影响
-  - 跟风型：跟随市场主流意见
-  - 价值型散户：注重基本面但缺乏专业分析
-  - 技术型散户：依赖简单技术指标
+### Overview
 
-- **机构Agent群（50+）**：模拟专业投资机构策略
-  - 量化对冲基金：数据驱动的系统化交易
-  - 价值投资机构：深度基本面分析
-  - 趋势跟踪机构：捕捉中长期趋势
-  - 高频交易机构：短期套利机会
-  - 指数基金：被动跟踪策略
+An advanced AI-powered stock trading system featuring **250+ intelligent agents** (200 retail + 50 institutional) powered by **GPT-5** and **Claude 4.5 Sonnet**, plus a **12-expert consensus panel** conducting multi-round deliberations to achieve **30%+ annual returns**.
 
-- **专家决策委员会**：综合所有Agent意见做出最终决策
-  - 情绪分析专家：分析散户群体情绪
-  - 机构行为专家：解读机构资金流向
-  - 风险控制专家：评估交易风险
-  - 市场时机专家：判断入场时机
+### 🌟 Key Features
 
-### 2. 核心策略："顺机构，反散户"
-- 识别散户过度集中的情绪方向（贪婪/恐慌）
-- 捕捉机构资金的真实意图
-- 在散户恐慌时跟随机构买入
-- 在散户狂热时警惕机构出货
+- **🤖 Dual AI Engine**: GPT-5 + Claude 4.5 Sonnet working together
+- **👥 250+ Independent Agents**: Each makes autonomous decisions
+  - 200 Retail Agents (5 types: momentum chasers, panic sellers, herd followers, value seekers, technical traders)
+  - 50 Institutional Agents (5 types: quantitative, statistical arbitrage, machine learning, high frequency, market makers)
+- **🎓 12 Elite Experts**: Multi-round consensus deliberation
+- **📊 Focused Assets**: Index ETFs, Gold, Precious Metals, Blue Chips
+- **🏛️ Institutional Strategy**: Follow smart money, counter retail sentiment
+- **🎯 Target**: 30%+ annual returns with controlled risk
 
-### 3. 全市场机会扫描
-- 实时监控数百只股票
-- 多维度筛选交易机会
-- 智能排序和优先级判断
+### 🚀 Quick Start
 
-### 4. 自动交易执行
-- 智能订单拆分
-- 滑点控制
-- 风险管理
-- 仓位管理
-
-## 项目结构
-
-```
-Stock_Trading_Robot_RAC/
-├── agents/                 # Agent模块
-│   ├── __init__.py
-│   ├── base_agent.py      # Agent基类
-│   ├── retail_agents.py   # 散户Agent实现
-│   ├── institutional_agents.py  # 机构Agent实现
-│   └── expert_panel.py    # 专家决策委员会
-├── data/                   # 数据模块
-│   ├── __init__.py
-│   ├── market_data.py     # 市场数据获取
-│   ├── stock_analyzer.py  # 股票分析引擎
-│   └── data_cache.py      # 数据缓存
-├── trading/               # 交易模块
-│   ├── __init__.py
-│   ├── executor.py        # 交易执行器
-│   ├── risk_manager.py    # 风险管理
-│   └── position_manager.py # 仓位管理
-├── strategy/              # 策略模块
-│   ├── __init__.py
-│   ├── strategy_generator.py  # 策略生成
-│   └── signal_aggregator.py   # 信号聚合
-├── utils/                 # 工具模块
-│   ├── __init__.py
-│   ├── logger.py          # 日志系统
-│   └── config.py          # 配置管理
-├── logs/                  # 日志目录
-├── data_cache/            # 数据缓存目录
-├── config.yaml            # 主配置文件
-├── requirements.txt       # 依赖包
-├── main.py               # 主程序入口
-└── scheduler.py          # 任务调度器
-```
-
-## 快速开始
-
-### 1. 安装依赖
+#### 1. Install Dependencies
 ```bash
-pip install -r requirements.txt
+pip install numpy pandas anthropic openai yfinance
 ```
 
-### 2. 配置系统
-编辑 `config.yaml` 文件，配置：
-- API密钥（LLM、股票数据）
-- 交易账户信息
-- Agent数量和类型
-- 风险参数
-
-### 3. 运行系统
+#### 2. Set API Keys
 ```bash
-# 启动主程序
-python main.py
+# GPT-5 (OpenAI)
+export OPENAI_API_KEY="sk-xxxxx"
 
-# 或使用调度器（定时运行）
-python scheduler.py
+# Claude 4.5 Sonnet (Anthropic)
+export ANTHROPIC_API_KEY="sk-ant-xxxxx"
 ```
 
-## 工作流程
+#### 3. Run System
+```bash
+# Full system with agents + experts
+python ultimate_trading_system.py
 
-1. **市场扫描阶段**
-   - 系统扫描全市场股票
-   - 识别异常波动、成交量放大等信号
+# Expert-only version
+python expert_consensus_system.py
 
-2. **Agent分析阶段**
-   - 200+散户Agent分别给出观点和情绪
-   - 50+机构Agent进行专业分析
-   - 记录所有Agent的决策和理由
+# Elite version (institutional-grade)
+python elite_trading_system.py
+```
 
-3. **专家会议阶段**
-   - 情绪分析专家：总结散户群体情绪倾向
-   - 机构行为专家：分析机构资金动向
-   - 风险控制专家：评估潜在风险
-   - 市场时机专家：判断入场时机
-   - 通过多轮讨论达成共识
+### 📂 System Versions
 
-4. **决策执行阶段**
-   - 生成交易计划（股票、方向、数量、价格）
-   - 风险检查
-   - 执行交易
-   - 记录和监控
+| File | Description | Target | Best For |
+|------|-------------|--------|----------|
+| `ultimate_trading_system.py` | **250+ Agents + 12 Experts** | 30%+ | Maximum intelligence |
+| `expert_consensus_system.py` | 12 Experts only | 30%+ | Focused decision-making |
+| `elite_trading_system.py` | Full position, multi-factor | 15-30% | Institutional-grade |
+| `ai_trading_complete_system.py` | Original complete system | 15-25% | Learning & research |
+| `forex_trading_example.py` | Forex with MT5 | High risk | Forex traders |
 
-## 安全与风险控制
+### 🎯 System Architecture
 
-- 单笔交易最大亏损限制
-- 单日最大交易次数限制
-- 总仓位控制
-- 止损止盈自动触发
-- 异常情况自动暂停
+```
+Market Data (yfinance)
+    ↓
+┌─────────────────────────────────────────────┐
+│  250+ Independent Agents                    │
+│  ┌──────────────┐  ┌──────────────────┐   │
+│  │ 200 Retail   │  │ 50 Institutional │   │
+│  │ - Momentum   │  │ - Quant          │   │
+│  │ - Panic      │  │ - Stat Arb       │   │
+│  │ - Herd       │  │ - ML             │   │
+│  │ - Value      │  │ - HFT            │   │
+│  │ - Technical  │  │ - Market Maker   │   │
+│  └──────────────┘  └──────────────────┘   │
+│         ↓                    ↓              │
+│    Each agent makes independent decision   │
+│    Powered by GPT-5 or Claude 4.5         │
+└─────────────────────────────────────────────┘
+                  ↓
+        ┌─────────────────────┐
+        │  12 Expert Panel    │
+        │  6-Round Discussion │
+        └─────────────────────┘
+                  ↓
+         Final Consensus Decision
+                  ↓
+         Trade Execution (100% position)
+```
 
-## 注意事项
+### 🏛️ Institutional Strategy
 
-⚠️ **重要提示**：
-1. 本系统为实验性质，不构成投资建议
-2. 股市有风险，投资需谨慎
-3. 建议先在模拟环境测试
-4. 确保理解所有风险后再使用真实资金
-5. 建议从小资金开始测试
+**"Follow Institutions, Counter Retail"**
 
-## 技术栈
+- **When retail panics** (extreme fear) + institutions buy → **BUY**
+- **When retail euphoric** (extreme greed) + institutions sell → **SELL**
+- Track institutional flow via market microstructure analysis
+- Exploit retail behavioral biases
 
-- Python 3.9+
-- OpenAI API / Claude API（Agent智能）
-- akshare / yfinance（股票数据）
-- pandas / numpy（数据分析）
-- asyncio（异步处理）
-- APScheduler（任务调度）
+### 📊 Asset Universe (16 Focused Assets)
 
-## 许可证
+**Index ETFs**: SPY, QQQ, DIA, IWM
+**Sector ETFs**: XLF, XLK, XLE
+**Gold & Precious Metals**: GLD, GDX, GDXJ, SLV
+**Blue Chips**: AAPL, MSFT, NVDA, TSLA, AMZN
 
-MIT License
+### 🛡️ Risk Management
+
+- **Stop Loss**: 4%
+- **Take Profit**: 12%
+- **Trailing Stop**: 3%
+- **Max Drawdown**: -15%
+- **Target Sharpe**: > 2.0
+
+### 📖 Documentation
+
+- **English**:
+  - `EXPERT_CONSENSUS_GUIDE.md` - Expert system guide
+  - `FINAL_SUMMARY.md` - Project summary
+  - `FOREX_TRADING_GUIDE.md` - Forex trading guide
+
+- **Chinese**:
+  - `快速开始.md` - Quick start guide
+  - `一键回测使用指南.md` - Backtest guide
+  - `精英系统使用指南.md` - Elite system guide
+  - `系统版本对比.md` - Version comparison
+
+### 🎓 Performance Targets
+
+| Metric | Target | Description |
+|--------|--------|-------------|
+| Annual Return | 30%+ | Aggressive returns |
+| Sharpe Ratio | > 2.0 | Risk-adjusted performance |
+| Max Drawdown | < -15% | Capital preservation |
+| Win Rate | > 65% | Trading accuracy |
+
+### 🔬 Technology Stack
+
+- **AI Models**: GPT-5, Claude 4.5 Sonnet
+- **Data**: yfinance (real US stock data)
+- **Analytics**: NumPy, Pandas
+- **Factors**: Multi-factor quantitative models
+- **Risk**: VaR, CVaR, Kelly Criterion
+
+### 📜 License
+
+MIT License - See LICENSE file
+
+### ⚠️ Disclaimer
+
+This system is for educational and research purposes only. Trading carries significant risk. Past performance does not guarantee future results. Never trade with money you cannot afford to lose.
+
+---
+
+<a name="chinese"></a>
+## 🇨🇳 中文版本
+
+### 系统概述
+
+先进的AI驱动股票交易系统，配备**250+智能Agent**（200散户 + 50机构），由**GPT-5**和**Claude 4.5 Sonnet**双引擎驱动，加上**12位顶级专家**进行多轮讨论，目标实现**年化30%+收益**。
+
+### 🌟 核心特性
+
+- **🤖 双AI引擎**: GPT-5 + Claude 4.5 Sonnet协同工作
+- **👥 250+独立Agent**: 每个都自主决策
+  - 200个散户Agent（5类：追涨杀跌、恐慌型、跟风型、价值型、技术型）
+  - 50个机构Agent（5类：量化、统计套利、机器学习、高频、做市商）
+- **🎓 12位精英专家**: 多轮共识讨论
+- **📊 专注资产**: 指数ETF、黄金、贵金属、蓝筹股
+- **🏛️ 机构策略**: 顺机构、反散户
+- **🎯 目标**: 控制风险下实现30%+年化收益
+
+### 🚀 快速开始
+
+#### 1. 安装依赖
+```bash
+pip install numpy pandas anthropic openai yfinance
+```
+
+#### 2. 设置API密钥
+```bash
+# GPT-5 (OpenAI)
+export OPENAI_API_KEY="sk-xxxxx"
+
+# Claude 4.5 Sonnet (Anthropic)
+export ANTHROPIC_API_KEY="sk-ant-xxxxx"
+```
+
+#### 3. 运行系统
+```bash
+# 完整系统（agents + 专家）
+python ultimate_trading_system.py
+
+# 纯专家版本
+python expert_consensus_system.py
+
+# 精英版（机构级别）
+python elite_trading_system.py
+```
+
+### 📂 系统版本
+
+| 文件 | 说明 | 目标收益 | 适合人群 |
+|------|------|---------|----------|
+| `ultimate_trading_system.py` | **250+ Agent + 12专家** | 30%+ | 追求最大智能 |
+| `expert_consensus_system.py` | 纯12专家系统 | 30%+ | 专注决策质量 |
+| `elite_trading_system.py` | 全仓轮动、多因子 | 15-30% | 机构级别 |
+| `ai_trading_complete_system.py` | 原始完整系统 | 15-25% | 学习研究 |
+| `forex_trading_example.py` | 外汇MT5交易 | 高风险 | 外汇交易者 |
+
+### 🎯 系统架构
+
+```
+市场数据 (yfinance)
+    ↓
+┌─────────────────────────────────────────────┐
+│  250+独立Agent                              │
+│  ┌──────────────┐  ┌──────────────────┐   │
+│  │ 200散户Agent │  │ 50机构Agent      │   │
+│  │ - 追涨杀跌   │  │ - 量化           │   │
+│  │ - 恐慌型     │  │ - 统计套利       │   │
+│  │ - 跟风型     │  │ - 机器学习       │   │
+│  │ - 价值型     │  │ - 高频交易       │   │
+│  │ - 技术型     │  │ - 做市商         │   │
+│  └──────────────┘  └──────────────────┘   │
+│         ↓                    ↓              │
+│    每个Agent独立决策                        │
+│    由GPT-5或Claude 4.5驱动                 │
+└─────────────────────────────────────────────┘
+                  ↓
+        ┌─────────────────────┐
+        │  12专家委员会        │
+        │  6轮深度讨论         │
+        └─────────────────────┘
+                  ↓
+         最终共识决策
+                  ↓
+         交易执行（全仓）
+```
+
+### 🏛️ 机构策略
+
+**"顺机构，反散户"**
+
+- **散户恐慌**（极度恐惧）+ 机构买入 → **买入**
+- **散户狂热**（极度贪婪）+ 机构卖出 → **卖出**
+- 通过市场微观结构分析追踪机构流向
+- 利用散户行为偏差
+
+### 📊 资产池（16个专注资产）
+
+**指数ETF**: SPY, QQQ, DIA, IWM
+**行业ETF**: XLF, XLK, XLE
+**黄金及贵金属**: GLD, GDX, GDXJ, SLV
+**蓝筹股**: AAPL, MSFT, NVDA, TSLA, AMZN
+
+### 🛡️ 风险管理
+
+- **止损**: 4%
+- **止盈**: 12%
+- **移动止损**: 3%
+- **最大回撤**: -15%
+- **目标夏普比率**: > 2.0
+
+### 📖 文档
+
+- **英文文档**:
+  - `EXPERT_CONSENSUS_GUIDE.md` - 专家系统指南
+  - `FINAL_SUMMARY.md` - 项目总结
+  - `FOREX_TRADING_GUIDE.md` - 外汇交易指南
+
+- **中文文档**:
+  - `快速开始.md` - 快速入门
+  - `一键回测使用指南.md` - 回测使用指南
+  - `精英系统使用指南.md` - 精英系统指南
+  - `系统版本对比.md` - 版本对比
+
+### 🎓 性能目标
+
+| 指标 | 目标 | 说明 |
+|------|------|------|
+| 年化收益 | 30%+ | 激进收益 |
+| 夏普比率 | > 2.0 | 风险调整后收益 |
+| 最大回撤 | < -15% | 资本保护 |
+| 胜率 | > 65% | 交易准确率 |
+
+### 🔬 技术栈
+
+- **AI模型**: GPT-5, Claude 4.5 Sonnet
+- **数据**: yfinance（真实美股数据）
+- **分析**: NumPy, Pandas
+- **因子**: 多因子量化模型
+- **风险**: VaR, CVaR, Kelly公式
+
+### 📜 许可证
+
+MIT License - 查看LICENSE文件
+
+### ⚠️ 免责声明
+
+本系统仅供教育和研究用途。交易存在重大风险。历史业绩不代表未来表现。切勿用无法承受损失的资金进行交易。
+
+---
+
+## 🤝 Contributing | 贡献
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+欢迎贡献！请随时提交Pull Request。
+
+## 📧 Contact | 联系
+
+For questions or support, please open an issue on GitHub.
+
+如有问题或需要支持，请在GitHub上开issue。
+
+---
+
+**Made with ❤️ by AI Trading Team**
+
+**由AI交易团队用❤️制作**
