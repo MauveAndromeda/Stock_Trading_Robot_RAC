@@ -826,6 +826,349 @@ class ExpertPanel:
         )
 
 # ============================================================================
+# AGENT SYSTEM - 250+ Independent Agents
+# ============================================================================
+
+@dataclass
+class AgentDecision:
+    """Individual agent's trading decision"""
+    agent_id: str
+    agent_type: str
+    agent_category: str  # 'retail' or 'institutional'
+    action: TradingAction
+    confidence: float
+    reasoning: str
+    llm_provider: str  # Which LLM made this decision
+
+class BaseAgent(ABC):
+    """Base class for all trading agents"""
+
+    def __init__(self, agent_id: str, agent_type: str, category: str, llm_client: LLMClient):
+        self.agent_id = agent_id
+        self.agent_type = agent_type
+        self.category = category
+        self.llm_client = llm_client
+
+    @abstractmethod
+    def get_personality_prompt(self) -> str:
+        """Get agent-specific personality/strategy prompt"""
+        pass
+
+    def decide(self, stock_data: Dict[str, Any]) -> AgentDecision:
+        """Make independent trading decision"""
+        prompt = self._build_decision_prompt(stock_data)
+        system_prompt = self.get_personality_prompt()
+
+        result = self.llm_client.structured_chat(prompt, system_prompt)
+
+        return AgentDecision(
+            agent_id=self.agent_id,
+            agent_type=self.agent_type,
+            agent_category=self.category,
+            action=TradingAction(result.get('action', 'HOLD')),
+            confidence=result.get('confidence', 0.50),
+            reasoning=result.get('reasoning', ''),
+            llm_provider=self.llm_client.provider
+        )
+
+    def _build_decision_prompt(self, stock_data: Dict[str, Any]) -> str:
+        """Build decision prompt for agent"""
+        prompt = f"""
+Stock: {stock_data['symbol']}
+Current Price: ${stock_data['price']:.2f}
+Change Today: {stock_data['change_pct']:+.2f}%
+
+QUICK INDICATORS:
+- RSI: {stock_data.get('rsi', 50):.1f} (30=oversold, 70=overbought)
+- Price vs MA20: ${stock_data.get('ma20', 0):.2f} (above/below)
+- Momentum: {stock_data.get('momentum', 0):+.2%}
+- Trend: {stock_data.get('trend', 0):.2f} (-1 to +1)
+- Volume: {stock_data.get('volume_ratio', 1):.1f}x normal
+
+Based on your personality/strategy as a {self.agent_type}, make your independent decision.
+
+Return JSON:
+{{
+    "action": "BUY/SELL/HOLD",
+    "confidence": 0.0-1.0,
+    "reasoning": "Brief reasoning (1-2 sentences)"
+}}
+"""
+        return prompt
+
+class RetailAgent(BaseAgent):
+    """Retail investor agent with specific personality traits"""
+
+    PERSONALITIES = {
+        'momentum_chaser': {
+            'description': 'Momentum Chaser - FOMO-driven, chases trends',
+            'prompt': """You are a retail momentum chaser. You get FOMO (fear of missing out) easily.
+You love buying stocks that are going up and showing strong momentum. You believe "the trend is your friend."
+You often buy when RSI > 60 and momentum is positive. You panic when stocks start dropping.
+Your decisions are emotional and momentum-driven. You chase winners and fear missing rallies."""
+        },
+        'panic_seller': {
+            'description': 'Panic Seller - Fear-based, sells on dips',
+            'prompt': """You are a retail panic seller. You are fearful and risk-averse to a fault.
+Any negative price movement scares you. You sell when RSI drops below 50 or when you see red.
+You believe "cut losses quickly" even when it's just normal volatility. News headlines scare you.
+You often sell at the bottom. Your decisions are fear-driven and reactive."""
+        },
+        'herd_follower': {
+            'description': 'Herd Follower - Follows the crowd',
+            'prompt': """You are a retail herd follower. You follow what "everyone else" is doing.
+You buy popular stocks when volume is high and momentum is strong. You believe in "wisdom of crowds."
+You wait for confirmation before acting. You fear being contrarian. You follow trends late.
+Your decisions are based on popularity and following the herd."""
+        },
+        'value_seeker': {
+            'description': 'Value Seeker - Basic fundamental analysis',
+            'prompt': """You are a retail value seeker. You believe in "buy low, sell high" fundamentals.
+You look for oversold conditions (RSI < 40) and stocks below their moving averages.
+You think you're finding "bargains" but often catch falling knives. You average down on losses.
+Your decisions are based on simple value metrics and mean reversion beliefs."""
+        },
+        'technical_trader': {
+            'description': 'Technical Trader - Uses indicators',
+            'prompt': """You are a retail technical trader. You follow technical indicators religiously.
+You use RSI, MACD, moving averages as gospel. You believe patterns repeat.
+You buy on "golden crosses" and sell on "death crosses." You follow rules mechanically.
+Your decisions are based on technical signals, sometimes ignoring broader context."""
+        }
+    }
+
+    def __init__(self, agent_id: str, personality_type: str, llm_client: LLMClient):
+        super().__init__(agent_id, personality_type, 'retail', llm_client)
+        self.personality = self.PERSONALITIES[personality_type]
+
+    def get_personality_prompt(self) -> str:
+        return self.personality['prompt']
+
+class InstitutionalAgent(BaseAgent):
+    """Institutional investor agent with sophisticated strategies"""
+
+    STRATEGIES = {
+        'quantitative': {
+            'description': 'Quantitative - Multi-factor models',
+            'prompt': """You are an institutional quantitative analyst. You use multi-factor models.
+You analyze momentum, value, quality, volatility, and trend factors systematically.
+You look for statistical edges and factor combinations. You trust data over emotions.
+Your composite scores guide decisions. You seek alpha through factor analysis.
+Your decisions are data-driven, systematic, and based on proven quantitative factors."""
+        },
+        'statistical_arbitrage': {
+            'description': 'Stat Arb - Mean reversion specialist',
+            'prompt': """You are an institutional statistical arbitrage trader.
+You identify mean reversion opportunities using z-scores and statistical models.
+You look for deviations from fair value (200-day MA, Bollinger Bands).
+You profit from temporary dislocations. You have strict entry/exit rules.
+Your decisions are based on statistical mean reversion and mathematical models."""
+        },
+        'machine_learning': {
+            'description': 'ML Trader - Predictive models',
+            'prompt': """You are an institutional ML trader using predictive models.
+You analyze patterns in momentum, volatility, volume, and price action.
+You look for non-linear relationships and complex patterns humans miss.
+You weight multiple signals optimally. You adapt to changing market regimes.
+Your decisions are based on pattern recognition and predictive analytics."""
+        },
+        'high_frequency': {
+            'description': 'HFT - Short-term alpha capture',
+            'prompt': """You are an institutional high-frequency trader.
+You look for very short-term mispricings and momentum bursts.
+You care about volume spikes, sudden price moves, and liquidity.
+You enter and exit quickly. You capture small edges repeatedly.
+Your decisions are based on short-term momentum and liquidity signals."""
+        },
+        'market_maker': {
+            'description': 'Market Maker - Liquidity provision',
+            'prompt': """You are an institutional market maker providing liquidity.
+You profit from bid-ask spreads and order flow. You trade against emotional retail.
+When retail panics (RSI < 30), you buy. When retail is euphoric (RSI > 70), you sell.
+You fade extreme moves. You are contrarian to retail sentiment.
+Your decisions are based on market microstructure and liquidity provision."""
+        }
+    }
+
+    def __init__(self, agent_id: str, strategy_type: str, llm_client: LLMClient):
+        super().__init__(agent_id, strategy_type, 'institutional', llm_client)
+        self.strategy = self.STRATEGIES[strategy_type]
+
+    def get_personality_prompt(self) -> str:
+        return self.strategy['prompt']
+
+class AgentManager:
+    """Manages 250+ independent agents with dual LLM allocation"""
+
+    def __init__(self, use_dual_llm: bool = True, allocation_strategy: str = 'random'):
+        self.use_dual_llm = use_dual_llm
+        self.allocation_strategy = allocation_strategy
+        self.agents: List[BaseAgent] = []
+
+        print(f"\n{'='*80}")
+        print("AGENT MANAGER - Creating 250+ Independent Agents")
+        print(f"{'='*80}")
+        print(f"Dual LLM Mode: {use_dual_llm}")
+        print(f"Allocation Strategy: {allocation_strategy}")
+
+        # Initialize LLM clients
+        if use_dual_llm:
+            self.llm_clients = {
+                'anthropic': LLMClient(provider='anthropic'),
+                'openai': LLMClient(provider='openai')
+            }
+            print("✅ Dual LLM clients initialized (Claude 4.5 + GPT-5)")
+        else:
+            self.llm_clients = {
+                LLM_PROVIDER: LLMClient(provider=LLM_PROVIDER)
+            }
+            print(f"✅ Single LLM client initialized ({LLM_PROVIDER})")
+
+        # Create agents
+        self._create_agents()
+
+        print(f"\n✅ Agent Creation Complete!")
+        print(f"  Retail Agents: {sum(RETAIL_AGENT_COUNT.values())}")
+        print(f"  Institutional Agents: {sum(INSTITUTIONAL_AGENT_COUNT.values())}")
+        print(f"  Total Agents: {len(self.agents)}")
+        print(f"{'='*80}")
+
+    def _create_agents(self):
+        """Create all retail and institutional agents"""
+        agent_counter = 0
+
+        # Create retail agents
+        print("\nCreating Retail Agents...")
+        for personality_type, count in RETAIL_AGENT_COUNT.items():
+            for i in range(count):
+                agent_id = f"retail_{personality_type}_{i+1:03d}"
+                llm_client = self._assign_llm(agent_counter)
+                agent = RetailAgent(agent_id, personality_type, llm_client)
+                self.agents.append(agent)
+                agent_counter += 1
+
+        retail_count = agent_counter
+        print(f"  ✓ Created {retail_count} retail agents")
+
+        # Create institutional agents
+        print("\nCreating Institutional Agents...")
+        for strategy_type, count in INSTITUTIONAL_AGENT_COUNT.items():
+            for i in range(count):
+                agent_id = f"inst_{strategy_type}_{i+1:03d}"
+                llm_client = self._assign_llm(agent_counter)
+                agent = InstitutionalAgent(agent_id, strategy_type, llm_client)
+                self.agents.append(agent)
+                agent_counter += 1
+
+        inst_count = agent_counter - retail_count
+        print(f"  ✓ Created {inst_count} institutional agents")
+
+    def _assign_llm(self, agent_index: int) -> LLMClient:
+        """Assign LLM to agent based on allocation strategy"""
+        if not self.use_dual_llm:
+            return self.llm_clients[LLM_PROVIDER]
+
+        if self.allocation_strategy == 'random':
+            # Random assignment (50/50 split)
+            provider = np.random.choice(['anthropic', 'openai'])
+            return self.llm_clients[provider]
+
+        elif self.allocation_strategy == 'round_robin':
+            # Alternate between providers
+            provider = 'anthropic' if agent_index % 2 == 0 else 'openai'
+            return self.llm_clients[provider]
+
+        elif self.allocation_strategy == 'hybrid':
+            # Institutional agents prefer Claude, retail prefer GPT
+            if agent_index < sum(RETAIL_AGENT_COUNT.values()):
+                # Retail agent - 70% GPT, 30% Claude
+                provider = np.random.choice(['openai', 'anthropic'], p=[0.7, 0.3])
+            else:
+                # Institutional agent - 70% Claude, 30% GPT
+                provider = np.random.choice(['anthropic', 'openai'], p=[0.7, 0.3])
+            return self.llm_clients[provider]
+
+        else:
+            # Default to anthropic
+            return self.llm_clients.get('anthropic', self.llm_clients[LLM_PROVIDER])
+
+    def get_agent_decisions(self, stock_data: Dict[str, Any], sample_size: int = 50) -> List[AgentDecision]:
+        """Get decisions from sampled agents (for performance)"""
+        # Sample agents to avoid calling all 250+ (costly)
+        sampled_agents = np.random.choice(self.agents, size=min(sample_size, len(self.agents)), replace=False)
+
+        decisions = []
+        for agent in sampled_agents:
+            try:
+                decision = agent.decide(stock_data)
+                decisions.append(decision)
+            except Exception as e:
+                # If agent fails, skip it
+                continue
+
+        return decisions
+
+    def aggregate_agent_signals(self, decisions: List[AgentDecision]) -> Dict[str, Any]:
+        """Aggregate agent decisions into summary statistics"""
+        if not decisions:
+            return {
+                'retail_buy_pct': 0, 'retail_sell_pct': 0, 'retail_hold_pct': 0,
+                'inst_buy_pct': 0, 'inst_sell_pct': 0, 'inst_hold_pct': 0,
+                'overall_sentiment': 0, 'consensus_action': 'HOLD'
+            }
+
+        # Separate retail and institutional
+        retail_decisions = [d for d in decisions if d.agent_category == 'retail']
+        inst_decisions = [d for d in decisions if d.agent_category == 'institutional']
+
+        # Calculate percentages
+        def calc_pct(decisions_list, action):
+            if not decisions_list:
+                return 0
+            return sum(1 for d in decisions_list if d.action == action) / len(decisions_list)
+
+        retail_buy = calc_pct(retail_decisions, TradingAction.BUY)
+        retail_sell = calc_pct(retail_decisions, TradingAction.SELL)
+        retail_hold = calc_pct(retail_decisions, TradingAction.HOLD)
+
+        inst_buy = calc_pct(inst_decisions, TradingAction.BUY)
+        inst_sell = calc_pct(inst_decisions, TradingAction.SELL)
+        inst_hold = calc_pct(inst_decisions, TradingAction.HOLD)
+
+        # "Follow institutions, counter retail" signal
+        # If institutions buy and retail sells = strong buy
+        # If institutions sell and retail buys = strong sell
+        retail_sentiment = retail_buy - retail_sell  # +1 to -1
+        inst_sentiment = inst_buy - inst_sell  # +1 to -1
+
+        # Counter-retail strategy: negative correlation with retail, positive with institutional
+        overall_sentiment = inst_sentiment - (retail_sentiment * 0.3)
+
+        # Determine consensus
+        if overall_sentiment > 0.3:
+            consensus_action = 'BUY'
+        elif overall_sentiment < -0.3:
+            consensus_action = 'SELL'
+        else:
+            consensus_action = 'HOLD'
+
+        return {
+            'retail_buy_pct': retail_buy,
+            'retail_sell_pct': retail_sell,
+            'retail_hold_pct': retail_hold,
+            'inst_buy_pct': inst_buy,
+            'inst_sell_pct': inst_sell,
+            'inst_hold_pct': inst_hold,
+            'retail_sentiment': retail_sentiment,
+            'inst_sentiment': inst_sentiment,
+            'overall_sentiment': overall_sentiment,
+            'consensus_action': consensus_action,
+            'total_decisions': len(decisions),
+            'retail_count': len(retail_decisions),
+            'inst_count': len(inst_decisions)
+        }
+
+# ============================================================================
 # DATA PROVIDER
 # ============================================================================
 
@@ -1163,26 +1506,38 @@ class BacktestEngine:
         }
 
 # ============================================================================
-# EXPERT CONSENSUS TRADING SYSTEM
+# ULTIMATE AI TRADING SYSTEM - Agents + Experts
 # ============================================================================
 
-class ExpertConsensusSystem:
-    """Expert Consensus Trading System - Targeting 30%+ Returns"""
+class UltimateAITradingSystem:
+    """Ultimate AI Trading System - 250+ Agents + 12 Experts - Targeting 30%+ Returns"""
 
-    def __init__(self):
+    def __init__(self, use_agents: bool = True):
         print("=" * 80)
-        print("Expert Consensus Trading System - Targeting 30%+ Annual Returns")
-        print("Powered by 12 Elite AI Experts | 6-Round Deliberation")
+        print("ULTIMATE AI TRADING SYSTEM")
+        print("250+ Independent Agents + 12 Elite Experts | Dual LLM Engine")
+        print("Targeting 30%+ Annual Returns")
         print("=" * 80)
 
-        # Initialize LLM
-        print(f"\nInitializing LLM client ({LLM_PROVIDER})...")
-        self.llm_client = LLMClient(provider=LLM_PROVIDER)
+        self.use_agents = use_agents
 
-        # Initialize Expert Panel
+        # Initialize Agent Manager (250+ agents)
+        if use_agents:
+            print(f"\nInitializing Agent Manager...")
+            self.agent_manager = AgentManager(
+                use_dual_llm=USE_DUAL_LLM,
+                allocation_strategy=LLM_ALLOCATION
+            )
+        else:
+            self.agent_manager = None
+            print("\n⚠️  Agent system disabled, using expert-only mode")
+
+        # Initialize Expert Panel (12 experts)
         print(f"\nInitializing Expert Panel...")
+        # Use primary LLM for experts
+        self.expert_llm = LLMClient(provider=LLM_PROVIDER)
         self.expert_panel = ExpertPanel(
-            llm_client=self.llm_client,
+            llm_client=self.expert_llm,
             num_rounds=DELIBERATION_ROUNDS
         )
 
@@ -1196,20 +1551,27 @@ class ExpertConsensusSystem:
         self.backtest_engine = None
 
         print("\n" + "=" * 80)
-        print("✅ Expert Consensus System Ready!")
+        print("✅ Ultimate AI Trading System Ready!")
+        if use_agents:
+            print(f"Agents: {len(self.agent_manager.agents)}")
         print(f"Experts: {len(self.expert_panel.experts)}")
         print(f"Deliberation Rounds: {DELIBERATION_ROUNDS}")
         print(f"Target Annual Return: {TARGET_ANNUAL_RETURN:.0%}")
         print("=" * 80)
 
     def run_backtest(self, start_date: str, end_date: str):
-        """Run backtest"""
+        """Run backtest with agents and experts"""
         print("\n" + "=" * 80)
-        print("STARTING BACKTEST - Expert Consensus System")
+        system_name = "Ultimate AI System (Agents + Experts)" if self.use_agents else "Expert-Only System"
+        print(f"STARTING BACKTEST - {system_name}")
         print("=" * 80)
         print(f"Period: {start_date} to {end_date}")
         print(f"Initial Capital: ${INITIAL_CAPITAL:,.2f}")
         print(f"Strategy: Full Position Rotation (Focused Assets)")
+        if self.use_agents:
+            print(f"Decision Mode: 250+ Agents + 12 Expert Consensus")
+        else:
+            print(f"Decision Mode: 12 Expert Consensus Only")
         print(f"Asset Universe: {len(ASSET_UNIVERSE)} focused assets (ETFs, Gold, Blue Chips)")
         print(f"Target: {TARGET_ANNUAL_RETURN:.0%} annual return")
         print("=" * 80)
@@ -1324,7 +1686,33 @@ class ExpertConsensusSystem:
                 for symbol, stock_info in daily_stocks.items():
                     # Quick filter: only deliberate on strong candidates
                     if stock_info['composite'] > 0.4:  # Pre-screen threshold
+
+                        # Get agent opinions if enabled
+                        agent_signals = None
+                        if self.use_agents:
+                            agent_decisions = self.agent_manager.get_agent_decisions(
+                                stock_info, sample_size=30
+                            )
+                            agent_signals = self.agent_manager.aggregate_agent_signals(agent_decisions)
+
+                            # Add agent signals to stock info for expert context
+                            stock_info['agent_retail_buy'] = agent_signals.get('retail_buy_pct', 0)
+                            stock_info['agent_inst_buy'] = agent_signals.get('inst_buy_pct', 0)
+                            stock_info['agent_sentiment'] = agent_signals.get('overall_sentiment', 0)
+
+                        # Expert deliberation (with agent context if available)
                         decision = self.expert_panel.deliberate(stock_info)
+
+                        # Combined decision logic
+                        if self.use_agents and agent_signals:
+                            # Boost confidence if agents align with experts
+                            if (decision.action == TradingAction.BUY and
+                                agent_signals['consensus_action'] == 'BUY'):
+                                decision.confidence *= 1.1  # 10% boost for alignment
+                            # Reduce confidence if strong disagreement
+                            elif (decision.action == TradingAction.BUY and
+                                  agent_signals['consensus_action'] == 'SELL'):
+                                decision.confidence *= 0.8  # 20% reduction for disagreement
 
                         if (decision.action == TradingAction.BUY and
                             decision.confidence >= MIN_CONFIDENCE and
@@ -1334,16 +1722,23 @@ class ExpertConsensusSystem:
                                 'symbol': symbol,
                                 'decision': decision,
                                 'composite': stock_info['composite'],
-                                'price': stock_info['price']
+                                'price': stock_info['price'],
+                                'agent_signals': agent_signals
                             })
 
                 # Select best candidate
                 if candidates:
                     best = max(candidates, key=lambda x: x['decision'].confidence * x['composite'])
+
+                    reasoning = best['decision'].reasoning
+                    if self.use_agents and best.get('agent_signals'):
+                        signals = best['agent_signals']
+                        reasoning += f" | Agents: R:{signals['retail_sentiment']:+.1f} I:{signals['inst_sentiment']:+.1f}"
+
                     self.backtest_engine.execute_trade(
                         date, best['symbol'], TradingAction.BUY,
                         best['price'], best['decision'].confidence,
-                        best['decision'].reasoning
+                        reasoning
                     )
 
             # Record daily value
@@ -1376,7 +1771,8 @@ class ExpertConsensusSystem:
     def _print_results(self, metrics: Dict[str, Any]):
         """Print backtest results"""
         print("\n" + "=" * 80)
-        print("EXPERT CONSENSUS SYSTEM - PERFORMANCE RESULTS")
+        system_name = "ULTIMATE AI SYSTEM" if self.use_agents else "EXPERT CONSENSUS SYSTEM"
+        print(f"{system_name} - PERFORMANCE RESULTS")
         print("=" * 80)
 
         print(f"\n💰 RETURNS:")
@@ -1434,13 +1830,20 @@ class ExpertConsensusSystem:
 def main():
     """Main execution"""
     print("\n" + "=" * 80)
-    print("EXPERT CONSENSUS TRADING SYSTEM")
+    print("ULTIMATE AI TRADING SYSTEM")
+    print("250+ Agents + 12 Experts | Dual LLM Engine")
     print("Targeting 30%+ Annual Returns")
     print("=" * 80)
 
     print("\nSystem Configuration:")
-    print(f"  LLM Provider: {LLM_PROVIDER}")
+    print(f"  Primary LLM: {LLM_PROVIDER}")
     print(f"  Model: {CLAUDE_MODEL if LLM_PROVIDER == 'anthropic' else GPT_MODEL}")
+    print(f"  Dual LLM Mode: {USE_DUAL_LLM}")
+    if USE_DUAL_LLM:
+        print(f"  LLM Allocation: {LLM_ALLOCATION}")
+    print(f"  Total Agents: {sum(RETAIL_AGENT_COUNT.values()) + sum(INSTITUTIONAL_AGENT_COUNT.values())}")
+    print(f"  - Retail: {sum(RETAIL_AGENT_COUNT.values())}")
+    print(f"  - Institutional: {sum(INSTITUTIONAL_AGENT_COUNT.values())}")
     print(f"  Number of Experts: {NUM_EXPERTS}")
     print(f"  Deliberation Rounds: {DELIBERATION_ROUNDS}")
     print(f"  Consensus Threshold: {CONSENSUS_THRESHOLD:.0%}")
@@ -1451,7 +1854,7 @@ def main():
     print(f"  Initial Capital: ${INITIAL_CAPITAL:,.2f}")
     print(f"  Asset Universe: {len(ASSET_UNIVERSE)} focused assets")
     print(f"  Assets: Index ETFs, Gold ETFs, Gold Miners, Blue Chips")
-    print(f"  Strategy: Full Position Rotation (No Market Scanning)")
+    print(f"  Strategy: Full Position Rotation + Follow Institutions, Counter Retail")
 
     print("\nRisk Management:")
     print(f"  Stop Loss: {STOP_LOSS_PCT:.0%}")
@@ -1468,8 +1871,8 @@ def main():
         input()
 
     try:
-        # Create system
-        system = ExpertConsensusSystem()
+        # Create system (with agents enabled)
+        system = UltimateAITradingSystem(use_agents=True)
 
         # Run backtest
         metrics = system.run_backtest(BACKTEST_START, BACKTEST_END)
