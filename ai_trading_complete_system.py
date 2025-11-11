@@ -29,14 +29,16 @@ import os
 import sys
 import json
 import time
+import math
+import random
 import warnings
+import hashlib
+import statistics
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 from enum import Enum
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-import numpy as np
-import pandas as pd
 from collections import defaultdict
 
 warnings.filterwarnings('ignore')
@@ -100,6 +102,100 @@ MACD_SIGNAL = 9
 ATR_PERIOD = 14
 
 # ============================================================================
+# 简易时间序列结构（用于脱离pandas运行）
+# ============================================================================
+
+
+def _daterange(start: datetime, end: datetime) -> List[datetime]:
+    """生成[start, end]之间的所有日期（包含结束日）。"""
+    days = []
+    current = start
+    while current <= end:
+        days.append(current)
+        current += timedelta(days=1)
+    return days
+
+
+class TimeSeries:
+    """轻量级时间序列容器，兼容本文件的回测逻辑。"""
+
+    def __init__(self, records: List[Dict[str, Any]]):
+        self._records = records
+        self._index = {r['date']: r for r in records}
+
+    def __iter__(self):
+        return iter(self._records)
+
+    def __len__(self) -> int:
+        return len(self._records)
+
+    def __getitem__(self, item: int) -> Dict[str, Any]:
+        return self._records[item]
+
+    @property
+    def dates(self) -> List[datetime]:
+        return [r['date'] for r in self._records]
+
+    def get_by_date(self, date: datetime) -> Optional[Dict[str, Any]]:
+        return self._index.get(date)
+
+    def last(self) -> Dict[str, Any]:
+        return self._records[-1]
+
+
+def _rolling_mean(values: List[float], window: int) -> List[Optional[float]]:
+    results: List[Optional[float]] = []
+    window_sum = 0.0
+    for i, value in enumerate(values):
+        window_sum += value
+        if i >= window:
+            window_sum -= values[i - window]
+        if i + 1 >= window:
+            results.append(window_sum / window)
+        else:
+            results.append(None)
+    return results
+
+
+def _ema_series(values: List[float], span: int) -> List[Optional[float]]:
+    if not values:
+        return []
+    multiplier = 2 / (span + 1)
+    ema_values: List[Optional[float]] = []
+    ema: Optional[float] = None
+    for value in values:
+        if value is None:
+            ema_values.append(ema)
+            continue
+        if ema is None:
+            ema = value
+        else:
+            ema = (value - ema) * multiplier + ema
+        ema_values.append(ema)
+    return ema_values
+
+
+def _rolling_std(values: List[float], window: int) -> List[Optional[float]]:
+    results: List[Optional[float]] = []
+    for i in range(len(values)):
+        if i + 1 < window:
+            results.append(None)
+            continue
+        window_values = values[i + 1 - window:i + 1]
+        mean = sum(window_values) / window
+        variance = sum((v - mean) ** 2 for v in window_values) / window
+        results.append(math.sqrt(variance))
+    return results
+
+
+def _pct_change_series(values: List[float]) -> List[Optional[float]]:
+    changes: List[Optional[float]] = [None]
+    for i in range(1, len(values)):
+        prev = values[i - 1]
+        changes.append((values[i] - prev) / prev if prev else None)
+    return changes
+
+# ============================================================================
 # 基础类定义 - Base Classes
 # ============================================================================
 
@@ -158,6 +254,8 @@ class Trade:
     commission: float
     reason: str
     confidence: float
+    pnl: float = 0.0
+    pnl_pct: float = 0.0
 
 @dataclass
 class Position:
@@ -182,23 +280,29 @@ class LLMClient:
         self.client = None
 
         if provider == 'anthropic':
-            if not ANTHROPIC_API_KEY:
-                raise ValueError("ANTHROPIC_API_KEY not set")
-            try:
-                import anthropic
-                self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-            except ImportError:
-                print("⚠️  anthropic包未安装，尝试使用模拟模式")
+            api_key = ANTHROPIC_API_KEY
+            if not api_key:
+                print("⚠️  ANTHROPIC_API_KEY未设置，使用模拟模式运行")
                 self.client = None
+            else:
+                try:
+                    import anthropic
+                    self.client = anthropic.Anthropic(api_key=api_key)
+                except ImportError:
+                    print("⚠️  anthropic包未安装，尝试使用模拟模式")
+                    self.client = None
         elif provider == 'openai':
-            if not OPENAI_API_KEY:
-                raise ValueError("OPENAI_API_KEY not set")
-            try:
-                import openai
-                self.client = openai.OpenAI(api_key=OPENAI_API_KEY)
-            except ImportError:
-                print("⚠️  openai包未安装，尝试使用模拟模式")
+            api_key = OPENAI_API_KEY
+            if not api_key:
+                print("⚠️  OPENAI_API_KEY未设置，使用模拟模式运行")
                 self.client = None
+            else:
+                try:
+                    import openai
+                    self.client = openai.OpenAI(api_key=api_key)
+                except ImportError:
+                    print("⚠️  openai包未安装，尝试使用模拟模式")
+                    self.client = None
 
     def chat(self, prompt: str, system_prompt: str = None) -> str:
         """发送聊天请求"""
@@ -246,34 +350,128 @@ class LLMClient:
         return response.choices[0].message.content
 
     def _simulate_response(self, prompt: str) -> str:
-        """模拟LLM响应（用于测试）"""
-        # 简单的基于规则的模拟
-        if 'RSI' in prompt and 'oversold' in prompt.lower():
-            return json.dumps({
-                "action": "buy",
-                "confidence": 0.75,
-                "reason": "RSI oversold, potential bounce"
-            })
-        elif 'RSI' in prompt and 'overbought' in prompt.lower():
-            return json.dumps({
-                "action": "sell",
-                "confidence": 0.75,
-                "reason": "RSI overbought, potential correction"
-            })
-        else:
-            return json.dumps({
-                "action": "hold",
-                "confidence": 0.60,
-                "reason": "Unclear signals, wait for better opportunity"
-            })
+        """保留的文本模拟（兼容旧逻辑）。"""
+        return json.dumps({
+            "action": "hold",
+            "confidence": 0.60,
+            "reason": "Simulation fallback"
+        })
 
-    def structured_chat(self, prompt: str, system_prompt: str = None) -> Dict[str, Any]:
+    def _simulate_structured_decision(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """根据元数据生成确定性的模拟决策。"""
+        stock_data = metadata.get('stock_data', {})
+        agent_type = metadata.get('agent_type', 'generic')
+        identifier = metadata.get('identifier', agent_type)
+
+        key = f"{agent_type}:{identifier}:{stock_data.get('code', 'N/A')}:{stock_data.get('price', 0):.2f}"
+        seed = int.from_bytes(hashlib.sha256(key.encode('utf-8')).digest()[:8], 'big')
+        rng = random.Random(seed)
+
+        price = stock_data.get('price', 0.0) or 0.0
+        ma10 = stock_data.get('ma10', price) or price
+        ma20 = stock_data.get('ma20', price) or price
+        ma50 = stock_data.get('ma50', price) or price
+        rsi = stock_data.get('rsi', 50.0) or 50.0
+        macd = stock_data.get('macd', 0.0) or 0.0
+        atr = stock_data.get('atr', 0.0) or 0.0
+        volatility = stock_data.get('volatility', 0.0) or 0.0
+        change_pct = stock_data.get('change_pct', 0.0) or 0.0
+
+        trend_score = 0.0
+        if ma50:
+            if ma10 > ma50 * 1.01:
+                trend_score += 0.4
+            elif ma10 < ma50 * 0.99:
+                trend_score -= 0.4
+        if ma20:
+            if price > ma20 * 1.01:
+                trend_score += 0.1
+            elif price < ma20 * 0.99:
+                trend_score -= 0.1
+
+        momentum_score = 0.0
+        if macd > 0:
+            momentum_score += min(macd / max(price, 1), 1.0) * 0.5
+        elif macd < 0:
+            momentum_score += max(macd / max(price, 1), -1.0) * 0.5
+
+        rsi_score = 0.0
+        if rsi < 35:
+            rsi_score += 0.4
+        elif rsi > 65:
+            rsi_score -= 0.4
+
+        change_score = 0.0
+        if change_pct > 1.5:
+            change_score += 0.2
+        elif change_pct < -1.5:
+            change_score -= 0.2
+
+        noise = rng.uniform(-0.05, 0.05)
+
+        score = trend_score + momentum_score + rsi_score + change_score + noise
+
+        if agent_type == 'institutional':
+            score -= abs(volatility) * 0.5
+            score -= atr * 0.0005
+            threshold = 0.25
+        elif agent_type == 'expert':
+            retail_decisions: List[AgentDecision] = metadata.get('retail_decisions', [])
+            inst_decisions: List[AgentDecision] = metadata.get('institutional_decisions', [])
+            retail_bias = sum(1 for d in retail_decisions if d.action == ActionType.BUY) - \
+                sum(1 for d in retail_decisions if d.action == ActionType.SELL)
+            inst_bias = sum(1 for d in inst_decisions if d.action == ActionType.BUY) - \
+                sum(1 for d in inst_decisions if d.action == ActionType.SELL)
+            score += inst_bias * 0.02
+            score -= retail_bias * 0.01  # 逆散户
+            threshold = 0.20
+        else:  # retail 或其他
+            score += atr * 0.0002
+            threshold = 0.15
+
+        if score > threshold:
+            action = 'buy'
+        elif score < -threshold:
+            action = 'sell'
+        else:
+            action = 'hold'
+
+        confidence = min(0.9, 0.5 + abs(score) * 1.2)
+        confidence = max(0.1, confidence - volatility * 0.5)
+
+        reason_parts = []
+        if action == 'buy':
+            if rsi < 40:
+                reason_parts.append("RSI偏低")
+            if macd > 0:
+                reason_parts.append("MACD正向")
+            if price > ma20:
+                reason_parts.append("价格站上均线")
+        elif action == 'sell':
+            if rsi > 60:
+                reason_parts.append("RSI偏高")
+            if macd < 0:
+                reason_parts.append("MACD转弱")
+            if price < ma20:
+                reason_parts.append("价格跌破均线")
+        if not reason_parts:
+            reason_parts.append("信号中性，保持谨慎")
+
+        return {
+            "action": action,
+            "confidence": round(confidence, 2),
+            "reason": "，".join(reason_parts)
+        }
+
+    def structured_chat(self, prompt: str, system_prompt: str = None,
+                        metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """结构化聊天，返回JSON"""
+        if self.client is None:
+            return self._simulate_structured_decision(metadata or {})
+
         response_text = self.chat(prompt, system_prompt)
 
-        # 尝试解析JSON
         try:
-            # 查找JSON块
             if '```json' in response_text:
                 json_start = response_text.find('```json') + 7
                 json_end = response_text.find('```', json_start)
@@ -286,8 +484,7 @@ class LLMClient:
                 json_text = response_text
 
             return json.loads(json_text)
-        except:
-            # 解析失败，返回默认值
+        except Exception:
             return {
                 "action": "hold",
                 "confidence": 0.5,
@@ -363,7 +560,15 @@ class RetailAgent(BaseAgent):
         system_prompt = self._get_personality_prompt()
         prompt = self._build_analysis_prompt(stock_data)
 
-        result = self.llm_client.structured_chat(prompt, system_prompt)
+        result = self.llm_client.structured_chat(
+            prompt,
+            system_prompt,
+            metadata={
+                'agent_type': 'retail',
+                'identifier': self.agent_id,
+                'stock_data': stock_data
+            }
+        )
 
         return AgentDecision(
             action=ActionType(result.get('action', 'hold')),
@@ -436,7 +641,15 @@ class InstitutionalAgent(BaseAgent):
         system_prompt = self._get_strategy_prompt()
         prompt = self._build_analysis_prompt(stock_data)
 
-        result = self.llm_client.structured_chat(prompt, system_prompt)
+        result = self.llm_client.structured_chat(
+            prompt,
+            system_prompt,
+            metadata={
+                'agent_type': 'institutional',
+                'identifier': self.agent_id,
+                'stock_data': stock_data
+            }
+        )
 
         return AgentDecision(
             action=ActionType(result.get('action', 'hold')),
@@ -514,7 +727,17 @@ class Expert:
         )
         system_prompt = self._get_expert_prompt()
 
-        result = self.llm_client.structured_chat(prompt, system_prompt)
+        result = self.llm_client.structured_chat(
+            prompt,
+            system_prompt,
+            metadata={
+                'agent_type': 'expert',
+                'identifier': self.name,
+                'stock_data': stock_data,
+                'retail_decisions': retail_decisions,
+                'institutional_decisions': institutional_decisions
+            }
+        )
 
         return ExpertOpinion(
             expert_name=self.name,
@@ -659,7 +882,10 @@ class ExpertPanel:
         # 计算置信度
         max_votes = max(buy_votes, sell_votes, hold_votes)
         confidence = max_votes / len(expert_actions)
-        avg_expert_confidence = np.mean(expert_confidences)
+        avg_expert_confidence = (
+            statistics.fmean(expert_confidences)
+            if expert_confidences else 0.0
+        )
         final_confidence = (confidence + avg_expert_confidence) / 2
 
         # 计算共识度
@@ -733,80 +959,146 @@ class ExpertPanel:
 # ============================================================================
 
 class DataProvider:
-    """数据提供器（简化版，使用随机数据）"""
+    """数据提供器（纯Python实现，确保离线可运行）"""
 
     def __init__(self):
-        self.cache = {}
+        self.cache: Dict[Tuple[str, str, str], TimeSeries] = {}
 
     def get_stock_list(self) -> List[str]:
         """获取股票列表"""
-        # 示例股票列表
         return ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'JPM', 'V', 'WMT']
 
-    def get_historical_data(self, symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
-        """获取历史数据"""
-        # 生成模拟数据
-        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    def get_historical_data(self, symbol: str, start_date: str, end_date: str) -> TimeSeries:
+        """生成稳定的模拟历史数据。"""
+        cache_key = (symbol, start_date, end_date)
+        if cache_key in self.cache:
+            return self.cache[cache_key]
 
-        # 生成价格数据（随机游走）
-        np.random.seed(hash(symbol) % (2**32))  # 确保每个股票数据一致
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        dates = _daterange(start, end)
 
-        initial_price = 100 + np.random.randn() * 20
-        returns = np.random.randn(len(date_range)) * 0.02  # 2%波动率
-        prices = initial_price * np.exp(np.cumsum(returns))
+        seed = int.from_bytes(hashlib.sha256(symbol.encode("utf-8")).digest()[:8], "big")
+        rng = random.Random(seed)
 
-        # 生成OHLC
-        df = pd.DataFrame({
-            'date': date_range,
-            'open': prices * (1 + np.random.randn(len(date_range)) * 0.005),
-            'high': prices * (1 + abs(np.random.randn(len(date_range))) * 0.01),
-            'low': prices * (1 - abs(np.random.randn(len(date_range))) * 0.01),
-            'close': prices,
-            'volume': np.random.randint(1000000, 10000000, len(date_range))
-        })
+        price = 100 + rng.gauss(0, 20)
+        records: List[Dict[str, Any]] = []
 
-        # 确保OHLC逻辑正确
-        df['high'] = df[['open', 'high', 'close']].max(axis=1)
-        df['low'] = df[['open', 'low', 'close']].min(axis=1)
+        for date in dates:
+            daily_return = rng.gauss(0, 0.02)
+            price *= math.exp(daily_return)
+            base_spread = abs(rng.gauss(0, 0.01))
+            high = price * (1 + base_spread)
+            low = max(price * (1 - base_spread), 1)
+            open_price = price * (1 + rng.gauss(0, 0.005))
+            volume = rng.randint(1_000_000, 10_000_000)
 
-        return df
+            record = {
+                'date': date,
+                'open': open_price,
+                'high': max(high, open_price, price),
+                'low': min(low, open_price, price),
+                'close': price,
+                'volume': float(volume)
+            }
+            records.append(record)
 
-    def calculate_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """计算技术指标"""
+        self.calculate_technical_indicators(records)
+        series = TimeSeries(records)
+        self.cache[cache_key] = series
+        return series
+
+    def calculate_technical_indicators(self, records: List[Dict[str, Any]]) -> None:
+        """计算技术指标（就地修改records）。"""
+        closes = [r['close'] for r in records]
+        volumes = [r['volume'] for r in records]
+
         # 移动平均线
         for period in [5, 10, 20, 50, 100, 200]:
-            df[f'ma{period}'] = df['close'].rolling(window=period).mean()
+            ma_values = _rolling_mean(closes, period)
+            for rec, value in zip(records, ma_values):
+                rec[f'ma{period}'] = value
 
         # RSI
-        delta = df['close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=RSI_PERIOD).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=RSI_PERIOD).mean()
-        rs = gain / loss
-        df['rsi'] = 100 - (100 / (1 + rs))
+        gains: List[float] = []
+        losses: List[float] = []
+        rsi_values: List[Optional[float]] = [None]
+        for i in range(1, len(closes)):
+            delta = closes[i] - closes[i - 1]
+            gains.append(max(delta, 0.0))
+            losses.append(max(-delta, 0.0))
+            if len(gains) >= RSI_PERIOD:
+                avg_gain = sum(gains[-RSI_PERIOD:]) / RSI_PERIOD
+                avg_loss = sum(losses[-RSI_PERIOD:]) / RSI_PERIOD
+                if avg_loss == 0:
+                    rsi = 100.0
+                else:
+                    rs = avg_gain / avg_loss
+                    rsi = 100 - (100 / (1 + rs))
+                rsi_values.append(rsi)
+            else:
+                rsi_values.append(None)
+        if len(rsi_values) < len(records):
+            rsi_values.extend([None] * (len(records) - len(rsi_values)))
+        for rec, value in zip(records, rsi_values):
+            rec['rsi'] = value
 
         # MACD
-        ema_fast = df['close'].ewm(span=MACD_FAST).mean()
-        ema_slow = df['close'].ewm(span=MACD_SLOW).mean()
-        df['macd'] = ema_fast - ema_slow
-        df['macd_signal'] = df['macd'].ewm(span=MACD_SIGNAL).mean()
-        df['macd_hist'] = df['macd'] - df['macd_signal']
+        ema_fast = _ema_series(closes, MACD_FAST)
+        ema_slow = _ema_series(closes, MACD_SLOW)
+        macd_values: List[Optional[float]] = []
+        for fast, slow in zip(ema_fast, ema_slow):
+            if fast is None or slow is None:
+                macd_values.append(None)
+            else:
+                macd_values.append(fast - slow)
+        macd_signal = _ema_series(macd_values, MACD_SIGNAL)
+        macd_hist: List[Optional[float]] = []
+        for macd, signal in zip(macd_values, macd_signal):
+            if macd is None or signal is None:
+                macd_hist.append(None)
+            else:
+                macd_hist.append(macd - signal)
+        for rec, macd, signal, hist in zip(records, macd_values, macd_signal, macd_hist):
+            rec['macd'] = macd
+            rec['macd_signal'] = signal
+            rec['macd_hist'] = hist
 
         # ATR
-        high_low = df['high'] - df['low']
-        high_close = abs(df['high'] - df['close'].shift())
-        low_close = abs(df['low'] - df['close'].shift())
-        true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        df['atr'] = true_range.rolling(window=ATR_PERIOD).mean()
+        true_ranges: List[float] = []
+        for idx, rec in enumerate(records):
+            high_low = rec['high'] - rec['low']
+            if idx == 0:
+                true_ranges.append(high_low)
+            else:
+                prev_close = records[idx - 1]['close']
+                high_close = abs(rec['high'] - prev_close)
+                low_close = abs(rec['low'] - prev_close)
+                true_ranges.append(max(high_low, high_close, low_close))
+        atr_values = _rolling_mean(true_ranges, ATR_PERIOD)
+        for rec, value in zip(records, atr_values):
+            rec['atr'] = value
 
         # 波动率
-        df['returns'] = df['close'].pct_change()
-        df['volatility'] = df['returns'].rolling(window=20).std()
+        returns = _pct_change_series(closes)
+        std_source = [r if r is not None else 0.0 for r in returns]
+        raw_volatility = _rolling_std(std_source, 20)
+        volatility_values: List[Optional[float]] = []
+        for idx, value in enumerate(raw_volatility):
+            if idx + 1 < 20:
+                volatility_values.append(None)
+            else:
+                volatility_values.append(value)
+        for rec, value, ret in zip(records, volatility_values, returns):
+            rec['returns'] = ret
+            rec['volatility'] = value
 
         # 成交量比率
-        df['volume_ma'] = df['volume'].rolling(window=20).mean()
-        df['volume_ratio'] = df['volume'] / df['volume_ma']
+        volume_ma = _rolling_mean(volumes, 20)
+        for rec, value in zip(records, volume_ma):
+            rec['volume_ma'] = value
+            rec['volume_ratio'] = rec['volume'] / value if value else None
 
-        return df
 
 # ============================================================================
 # 回测引擎 - Backtest Engine
@@ -821,17 +1113,21 @@ class BacktestEngine:
         self.slippage_rate = slippage_rate
 
         self.cash = initial_capital
-        self.portfolio = {}  # {symbol: shares}
+        self.portfolio: Dict[str, Position] = {}
         self.trades = []
         self.daily_values = []
         self.positions_history = []
 
     def get_portfolio_value(self, current_prices: Dict[str, float]) -> float:
         """计算组合总值"""
-        portfolio_value = sum(
-            shares * current_prices.get(symbol, 0)
-            for symbol, shares in self.portfolio.items()
-        )
+        portfolio_value = 0.0
+        for symbol, position in self.portfolio.items():
+            price = current_prices.get(symbol, position.current_price)
+            position.current_price = price
+            position.unrealized_pnl = (price - position.avg_price) * position.shares
+            position.unrealized_pnl_pct = ((price - position.avg_price) / position.avg_price
+                                           if position.avg_price else 0.0)
+            portfolio_value += price * position.shares
         return self.cash + portfolio_value
 
     def execute_trade(self, date: datetime, symbol: str, action: ActionType,
@@ -864,7 +1160,28 @@ class BacktestEngine:
 
             # 执行买入
             self.cash -= total_cost
-            self.portfolio[symbol] = self.portfolio.get(symbol, 0) + shares
+            previous = self.portfolio.get(symbol)
+            if previous:
+                total_shares = previous.shares + shares
+                total_cost = previous.avg_price * previous.shares + total_cost
+                avg_price = total_cost / total_shares if total_shares else actual_price
+                self.portfolio[symbol] = Position(
+                    symbol=symbol,
+                    shares=total_shares,
+                    avg_price=avg_price,
+                    current_price=actual_price,
+                    unrealized_pnl=0.0,
+                    unrealized_pnl_pct=0.0
+                )
+            else:
+                self.portfolio[symbol] = Position(
+                    symbol=symbol,
+                    shares=shares,
+                    avg_price=actual_price,
+                    current_price=actual_price,
+                    unrealized_pnl=0.0,
+                    unrealized_pnl_pct=0.0
+                )
 
             self.trades.append(Trade(
                 date=date,
@@ -880,10 +1197,11 @@ class BacktestEngine:
             return True
 
         elif action == ActionType.SELL:
-            if symbol not in self.portfolio or self.portfolio[symbol] <= 0:
+            if symbol not in self.portfolio or self.portfolio[symbol].shares <= 0:
                 return False
 
-            shares = self.portfolio[symbol]
+            position = self.portfolio[symbol]
+            shares = position.shares
 
             # 应用滑点
             actual_price = price * (1 - self.slippage_rate)
@@ -891,6 +1209,10 @@ class BacktestEngine:
             proceeds = shares * actual_price
             commission = proceeds * self.commission_rate
             net_proceeds = proceeds - commission
+
+            cost_basis = position.avg_price * shares
+            pnl = net_proceeds - cost_basis
+            pnl_pct = pnl / cost_basis if cost_basis else 0.0
 
             # 执行卖出
             self.cash += net_proceeds
@@ -904,7 +1226,9 @@ class BacktestEngine:
                 shares=shares,
                 commission=commission,
                 reason=reason,
-                confidence=confidence
+                confidence=confidence,
+                pnl=pnl,
+                pnl_pct=pnl_pct
             ))
 
             return True
@@ -917,7 +1241,12 @@ class BacktestEngine:
         if symbol not in self.portfolio:
             return None
 
-        pnl_pct = (current_price - entry_price) / entry_price
+        position = self.portfolio[symbol]
+        reference_price = entry_price if entry_price is not None else position.avg_price
+        if not reference_price:
+            return None
+
+        pnl_pct = (current_price - reference_price) / reference_price
 
         if pnl_pct <= -STOP_LOSS_PCT:
             return ActionType.SELL  # 止损
@@ -941,25 +1270,31 @@ class BacktestEngine:
         if not self.daily_values:
             return {}
 
-        df = pd.DataFrame(self.daily_values)
-        df['returns'] = df['total_value'].pct_change()
+        values = [entry['total_value'] for entry in self.daily_values]
+        returns: List[float] = []
+        for i in range(1, len(values)):
+            prev = values[i - 1]
+            returns.append((values[i] - prev) / prev if prev else 0.0)
 
-        # 计算指标
-        total_return = (df['total_value'].iloc[-1] - self.initial_capital) / self.initial_capital
-        annual_return = (1 + total_return) ** (365 / len(df)) - 1
+        final_value = values[-1]
+        total_return = (final_value - self.initial_capital) / self.initial_capital
+        annual_return = (1 + total_return) ** (365 / len(values)) - 1 if len(values) > 0 else 0.0
 
-        volatility = df['returns'].std() * np.sqrt(252)
-        sharpe_ratio = (annual_return - 0.02) / volatility if volatility > 0 else 0
+        volatility = statistics.pstdev(returns) * math.sqrt(252) if len(returns) > 1 else 0.0
+        sharpe_ratio = (annual_return - 0.02) / volatility if volatility > 0 else 0.0
 
-        # 最大回撤
-        cummax = df['total_value'].cummax()
-        drawdown = (df['total_value'] - cummax) / cummax
-        max_drawdown = drawdown.min()
+        peak = values[0]
+        max_drawdown = 0.0
+        for value in values:
+            if value > peak:
+                peak = value
+            drawdown = (value - peak) / peak if peak else 0.0
+            if drawdown < max_drawdown:
+                max_drawdown = drawdown
 
-        # 胜率
         winning_trades = [t for t in self.trades if self._calculate_trade_pnl(t) > 0]
         total_trades = len([t for t in self.trades if t.action == ActionType.SELL])
-        win_rate = len(winning_trades) / total_trades if total_trades > 0 else 0
+        win_rate = len(winning_trades) / total_trades if total_trades > 0 else 0.0
 
         return {
             'total_return': total_return,
@@ -969,14 +1304,14 @@ class BacktestEngine:
             'max_drawdown': max_drawdown,
             'win_rate': win_rate,
             'total_trades': len(self.trades),
-            'final_value': df['total_value'].iloc[-1]
+            'final_value': final_value
         }
 
     def _calculate_trade_pnl(self, trade: Trade) -> float:
         """计算单笔交易盈亏"""
-        # 简化版：需要找到对应的买入/卖出
-        # 这里返回0作为占位
-        return 0
+        if trade.action != ActionType.SELL:
+            return 0.0
+        return trade.pnl
 
 # ============================================================================
 # 完整交易系统 - Complete Trading System
@@ -993,6 +1328,10 @@ class AITradingSystem:
         # 初始化LLM客户端
         print(f"\n初始化LLM客户端: {LLM_PROVIDER} - {LLM_MODEL}")
         self.llm_client = LLMClient(provider=LLM_PROVIDER, model=LLM_MODEL)
+
+        # 设置随机数生成器，保证回测结果可复现
+        random.seed(42)
+        self.rng = random.Random(42)
 
         # 创建散户Agent
         print(f"\n创建散户Agent...")
@@ -1049,19 +1388,17 @@ class AITradingSystem:
         symbol = stock_data['code']
 
         # 散户分析（采样，不是全部）
-        retail_sample = np.random.choice(
-            self.retail_agents,
-            size=min(sample_size, len(self.retail_agents)),
-            replace=False
-        )
+        retail_count = min(sample_size, len(self.retail_agents))
+        retail_sample = []
+        if retail_count:
+            retail_sample = self.rng.sample(self.retail_agents, retail_count)
         retail_decisions = [agent.analyze(stock_data) for agent in retail_sample]
 
         # 机构分析（采样）
-        inst_sample = np.random.choice(
-            self.institutional_agents,
-            size=min(sample_size // 2, len(self.institutional_agents)),
-            replace=False
-        )
+        inst_count = min(sample_size // 2, len(self.institutional_agents))
+        inst_sample = []
+        if inst_count:
+            inst_sample = self.rng.sample(self.institutional_agents, inst_count)
         inst_decisions = [agent.analyze(stock_data) for agent in inst_sample]
 
         # 专家委员会决策
@@ -1100,15 +1437,15 @@ class AITradingSystem:
         print(f"\n加载历史数据...")
         stock_data_dict = {}
         for symbol in symbols:
-            df = self.data_provider.get_historical_data(symbol, start_date, end_date)
-            df = self.data_provider.calculate_technical_indicators(df)
-            stock_data_dict[symbol] = df
-            print(f"  {symbol}: {len(df)} 天")
+            series = self.data_provider.get_historical_data(symbol, start_date, end_date)
+            stock_data_dict[symbol] = series
+            print(f"  {symbol}: {len(series)} 天")
 
         # 获取所有交易日期
         all_dates = sorted(set(
-            date for df in stock_data_dict.values()
-            for date in df['date']
+            date
+            for series in stock_data_dict.values()
+            for date in series.dates
         ))
 
         print(f"\n总交易日: {len(all_dates)}")
@@ -1128,33 +1465,32 @@ class AITradingSystem:
             stock_infos = {}
 
             for symbol in symbols:
-                df = stock_data_dict[symbol]
-                day_data = df[df['date'] == date]
+                series = stock_data_dict[symbol]
+                row = series.get_by_date(date)
 
-                if day_data.empty:
+                if not row:
                     continue
 
-                row = day_data.iloc[0]
                 current_prices[symbol] = row['close']
 
                 # 检查数据完整性
-                if pd.isna(row['rsi']) or pd.isna(row['macd']):
+                if row.get('rsi') is None or row.get('macd') is None:
                     continue
 
                 stock_infos[symbol] = {
                     'code': symbol,
                     'name': symbol,
                     'price': row['close'],
-                    'change_pct': ((row['close'] - row['open']) / row['open']) * 100,
-                    'ma5': row.get('ma5', 0),
-                    'ma10': row.get('ma10', 0),
-                    'ma20': row.get('ma20', 0),
-                    'ma50': row.get('ma50', 0),
-                    'rsi': row['rsi'],
-                    'macd': row['macd'],
-                    'atr': row['atr'],
-                    'volatility': row.get('volatility', 0),
-                    'volume_ratio': row.get('volume_ratio', 1),
+                    'change_pct': ((row['close'] - row['open']) / row['open']) * 100 if row['open'] else 0,
+                    'ma5': row.get('ma5') or 0,
+                    'ma10': row.get('ma10') or 0,
+                    'ma20': row.get('ma20') or 0,
+                    'ma50': row.get('ma50') or 0,
+                    'rsi': row.get('rsi') or 0,
+                    'macd': row.get('macd') or 0,
+                    'atr': row.get('atr') or 0,
+                    'volatility': row.get('volatility') or 0,
+                    'volume_ratio': row.get('volume_ratio') or 1,
                     'turnover_rate': 0.05,
                     'market_sentiment': 0.5
                 }
@@ -1244,9 +1580,10 @@ class AITradingSystem:
         else:
             print("  ⚠️  亏损，需要优化")
 
-        if metrics['max_drawdown'] > -0.20:
+        drawdown = abs(metrics['max_drawdown'])
+        if drawdown >= 0.20:
             print("  ⚠️  警告: 回撤超过20%，风险较高!")
-        elif metrics['max_drawdown'] > -0.10:
+        elif drawdown >= 0.10:
             print("  ⚡ 注意: 回撤在10-20%，需要控制风险")
         else:
             print("  ✓ 回撤控制良好")

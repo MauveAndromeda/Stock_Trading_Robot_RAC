@@ -46,7 +46,7 @@ class ForexTradingSystem:
         log_config = self.config.get('logging', {})
         setup_logger(
             log_level=log_config.get('level', 'INFO'),
-            log_file=log_config.get('output.file_path', 'logs/forex_trading.log')
+            log_file=log_config.get('output', {}).get('file_path', 'logs/forex_trading.log')
         )
 
         # 初始化组件
@@ -188,6 +188,10 @@ class ForexTradingSystem:
                 # 获取最新数据
                 latest = df.iloc[-1]
                 realtime = self.data_provider.get_realtime_data(symbol)
+
+                if not realtime:
+                    logger.warning(f"无法获取 {symbol} 的实时行情，跳过该品种")
+                    continue
 
                 # 构建分析数据
                 stock_data = {
